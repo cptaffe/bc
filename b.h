@@ -32,6 +32,7 @@ struct b_lex {
   int sock;
   size_t sz, cap, l, i;
   struct b_token_list *list;
+  int pdepth;
 };
 
 typedef int(birch_message_handlefunc)(void *o, struct b_token_list *list);
@@ -59,12 +60,12 @@ void b_lex_back(struct b_lex *l);
 void b_lex_emit(struct b_lex *l, struct b_token tok);
 void b_lex_buf(struct b_lex *l, char **buf, size_t *sz);
 
-b_lex_statefunc b_lex_state_start;
+b_lex_statefunc b_lex_state_expr;
 b_lex_statefunc b_lex_state_ident;
 b_lex_statefunc b_lex_state_whitespace;
 b_lex_statefunc b_lex_state_function_call;
-b_lex_statefunc b_lex_state_function_call_args;
-b_lex_statefunc b_lex_state_function_call_args_post;
+b_lex_statefunc b_lex_state_literal;
+b_lex_statefunc b_lex_state_operator;
 
 b_lex_checkfunc b_character_is_letter;
 b_lex_checkfunc b_character_is_whitespace;

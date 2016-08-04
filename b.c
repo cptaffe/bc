@@ -95,18 +95,35 @@ bool b_character_is_whitespace(char c) {
   return c == ' ' || c == '\t' || c == '\n';
 }
 
-int b_lex_state_function_call_args_base(struct b_lex *l, bool post_ident);
-
-int b_lex_state_function_call_args(struct b_lex *l) {
-  return b_lex_state_function_call_args_base(l, false);
-}
-
-int b_lex_state_function_call_args_post(struct b_lex *l) {
-  return b_lex_state_function_call_args_base(l, true);
-}
-
-int b_lex_state_function_call_args_base(struct b_lex *l, bool post_ident) {
+int b_lex_state_ident(struct b_lex *l) {
   char c;
+
+  assert(l);
+
+  for (;;) {
+    if (b_lex_next(l, &c) == -1)
+      return -1;
+    if (b_character_is_letter(c))
+      ;
+    else {
+      /* emit ident */
+      struct b_token tok;
+
+      b_lex_back(l);
+
+      tok.type = B_TOK_IDENT;
+      b_lex_buf(l, &tok.buf, &tok.sz);
+      b_lex_emit(l, tok);
+
+      return 0;
+    }
+  }
+}
+
+/* operator */
+int b_lex_state_operator(struct b_lex *l) {
+  char c;
+  struct b_token tok;
 
   assert(l);
 
@@ -115,103 +132,59 @@ int b_lex_state_function_call_args_base(struct b_lex *l, bool post_ident) {
       return -1;
     if (b_character_is_whitespace(c))
       return 0;
-    else if (c == ')') {
-      /* emit right parenthesis */
-      struct b_token tok;
+    else if (c == '.') {
+      /* emit dot operator */
 
-      tok.type = B_TOK_RPAREN;
+      tok.type = B_TOK_OPER;
       b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
       return 1;
-    } else if (b_character_is_letter(c))
-      return 2;
-    else if (c == ',') {
-      struct b_token tok;
-      if (!post_ident) {
-        /* error, empty parameter not allowed */
-        char *buf = "Empty parameter not allowed.";
+    } else if (c == ',') {
 
-        tok.type = B_TOK_ERR;
-        tok.buf = buf;
-        tok.sz = strlen(buf);
-        b_lex_emit(l, tok);
-      } else {
-        tok.type = B_TOK_COMMA;
-        b_lex_buf(l, &tok.buf, &tok.sz);
-        b_lex_emit(l, tok);
-      }
-
-      return 3;
-    } else {
-      /* error */
-      char *buf, *fmt;
-      struct b_token tok;
-      int sz;
-
-      fmt = "Unexpected character '%c', expected function parameter.";
-
-      sz = snprintf(0, 0, fmt, c) + 1;
-      if (sz < 0)
-        return -1;
-      buf = calloc(sizeof(char), (size_t)sz);
-      if (!buf)
-        return -1;
-      snprintf(buf, (size_t)sz, fmt, c);
-
-      tok.type = B_TOK_ERR;
-      tok.buf = buf;
-      tok.sz = (size_t)sz;
+      tok.type = B_TOK_COMMA;
+      b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
-      return 3;
-    }
-  }
-}
-
-int b_lex_state_function_call(struct b_lex *l) {
-  char c;
-
-  assert(l);
-
-  for (;;) {
-    if (b_lex_next(l, &c) == -1)
-      return -1;
-    if (b_character_is_whitespace(c))
-      ;
-    else if (c == '(') {
+      return 2;
+    } else if (c == '(') {
       /* emit opening paren */
-      struct b_token tok;
+
+      l->pdepth++;
 
       tok.type = B_TOK_LPAREN;
       b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
-      return 0;
-    } else {
-      /* error */
-      char *buf, *fmt;
-      struct b_token tok;
-      int sz;
+      return 3;
+    } else if (c == ')') {
+      /* emit right parenthesis */
 
-      fmt = "Unexpected character '%c', expected function call.";
-      sz = snprintf(0, 0, fmt, c) + 1;
-      if (sz < 0)
-        return -1;
-      buf = calloc(sizeof(char), (size_t)sz);
-      snprintf(buf, (size_t)sz, fmt, c);
+      if (l->pdepth > 0) {
+        l->pdepth--;
 
-      tok.type = B_TOK_ERR;
-      tok.buf = buf;
-      tok.sz = (size_t)sz;
-      b_lex_emit(l, tok);
+        tok.type = B_TOK_RPAREN;
+        b_lex_buf(l, &tok.buf, &tok.sz);
+        b_lex_emit(l, tok);
 
-      return 1;
-    }
+        return 4;
+      } else {
+        /* error */
+        char *buf = "Too many closing parens.";
+
+        tok.type = B_TOK_ERR;
+        tok.buf = buf;
+        tok.sz = strlen(buf);
+        b_lex_emit(l, tok);
+        return 5;
+      }
+    } else if (b_character_is_letter(c))
+      return b_lex_back(l), 6;
   }
 }
 
-int b_lex_state_ident(struct b_lex *l) {
+/* type literal */
+int b_lex_state_literal(struct b_lex *l) {
   char c;
 
   assert(l);
@@ -260,7 +233,7 @@ int b_lex_state_whitespace(struct b_lex *l) {
   }
 }
 
-int b_lex_state_start(struct b_lex *l) {
+int b_lex_state_expr(struct b_lex *l) {
   char c;
 
   assert(l);
@@ -272,6 +245,8 @@ int b_lex_state_start(struct b_lex *l) {
       return b_lex_back(l), 0;
     else if (b_character_is_whitespace(c))
       return b_lex_back(l), 1;
+    else if (c == ')')
+      return b_lex_back(l), 2;
     else {
       /* error */
       char *buf, *fmt;
