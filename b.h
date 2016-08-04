@@ -15,6 +15,7 @@ struct b_token {
     B_TOK_RPAREN,
     B_TOK_COMMA,
     B_TOK_IDENT,
+    B_TOK_NUMBER,
     B_TOK_OPER,
     B_TOK_max
   } type;
@@ -59,15 +60,17 @@ int b_lex_next(struct b_lex *l, char *c);
 void b_lex_back(struct b_lex *l);
 void b_lex_emit(struct b_lex *l, struct b_token tok);
 void b_lex_buf(struct b_lex *l, char **buf, size_t *sz);
+size_t b_lex_len(struct b_lex *l);
 
 b_lex_statefunc b_lex_state_expr;
 b_lex_statefunc b_lex_state_ident;
 b_lex_statefunc b_lex_state_whitespace;
 b_lex_statefunc b_lex_state_function_call;
-b_lex_statefunc b_lex_state_literal;
+b_lex_statefunc b_lex_state_number;
 b_lex_statefunc b_lex_state_operator;
 
 b_lex_checkfunc b_character_is_letter;
+b_lex_checkfunc b_character_is_digit;
 b_lex_checkfunc b_character_is_whitespace;
 
 #endif /* B_B_H_ */

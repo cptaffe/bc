@@ -78,6 +78,8 @@ void b_lex_buf(struct b_lex *l, char **buf, size_t *sz) {
   l->l = l->i; /* reset buffer */
 }
 
+size_t b_lex_len(struct b_lex *l) { return l->i - l->l; }
+
 int b_state_machine(struct b_lex *l, struct b_ndfa *g) {
   int next;
 
@@ -90,6 +92,8 @@ int b_state_machine(struct b_lex *l, struct b_ndfa *g) {
 bool b_character_is_letter(char c) {
   return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
 }
+
+bool b_character_is_digit(char c) { return c >= '0' && c <= '9'; }
 
 bool b_character_is_whitespace(char c) {
   return c == ' ' || c == '\t' || c == '\n';
@@ -110,6 +114,14 @@ int b_lex_state_ident(struct b_lex *l) {
       struct b_token tok;
 
       b_lex_back(l);
+
+      if (!b_lex_len(l)) {
+        tok.type = B_TOK_ERR;
+        tok.buf = "Expected identifier";
+        tok.sz = strlen(tok.buf);
+        b_lex_emit(l, tok);
+        return 1;
+      }
 
       tok.type = B_TOK_IDENT;
       b_lex_buf(l, &tok.buf, &tok.sz);
@@ -184,7 +196,7 @@ int b_lex_state_operator(struct b_lex *l) {
 }
 
 /* type literal */
-int b_lex_state_literal(struct b_lex *l) {
+int b_lex_state_number(struct b_lex *l) {
   char c;
 
   assert(l);
@@ -192,7 +204,7 @@ int b_lex_state_literal(struct b_lex *l) {
   for (;;) {
     if (b_lex_next(l, &c) == -1)
       return -1;
-    if (b_character_is_letter(c))
+    if (b_character_is_digit(c))
       ;
     else {
       /* emit ident */
@@ -200,7 +212,15 @@ int b_lex_state_literal(struct b_lex *l) {
 
       b_lex_back(l);
 
-      tok.type = B_TOK_IDENT;
+      if (!b_lex_len(l)) {
+        tok.type = B_TOK_ERR;
+        tok.buf = "Expected identifier";
+        tok.sz = strlen(tok.buf);
+        b_lex_emit(l, tok);
+        return 1;
+      }
+
+      tok.type = B_TOK_NUMBER;
       b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
@@ -243,10 +263,12 @@ int b_lex_state_expr(struct b_lex *l) {
       return -1;
     if (b_character_is_letter(c))
       return b_lex_back(l), 0;
-    else if (b_character_is_whitespace(c))
+    else if (b_character_is_digit(c))
       return b_lex_back(l), 1;
-    else if (c == ')')
+    else if (b_character_is_whitespace(c))
       return b_lex_back(l), 2;
+    else if (c == ')')
+      return b_lex_back(l), 3;
     else {
       /* error */
       char *buf, *fmt;

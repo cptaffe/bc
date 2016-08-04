@@ -8,7 +8,7 @@
 
 int main(int argc __attribute__((unused)),
          char *argv[] __attribute__((unused))) {
-  struct b_ndfa g[5];
+  struct b_ndfa g[6];
   struct b_lex l;
   struct b_token_list *tok;
   size_t i;
@@ -31,17 +31,21 @@ int main(int argc __attribute__((unused)),
   g[2].func = b_lex_state_whitespace;
   g[3].func = b_lex_state_whitespace;
   g[4].func = b_lex_state_operator;
+  g[5].func = b_lex_state_number;
 
   /* mappings */
-  g[0].next[0] = &g[1];                               /* expr -> ident */
-  g[0].next[1] = &g[3];                               /* expr -> whitespace */
-  g[0].next[2] = &g[4];                               /* expr -> oper */
-  g[3].next[0] = &g[0];                               /* whitespace -> expr */
-  g[1].next[0] = &g[4];                               /* ident -> oper */
-  g[4].next[0] = &g[2];                               /* oper -> whitespace */
-  g[2].next[0] = &g[4];                               /* whitespace -> oper */
-  g[4].next[1] = g[4].next[2] = g[4].next[3] = &g[0]; /* oper -> expr */
-  g[4].next[4] = &g[4];                               /* oper -> oper */
+  g[0].next[0] = &g[1];                /* expr -> ident */
+  g[0].next[1] = &g[5];                /* expr -> ident */
+  g[0].next[2] = &g[3];                /* expr -> whitespace */
+  g[0].next[3] = &g[4];                /* expr -> oper */
+  g[3].next[0] = &g[0];                /* whitespace -> expr */
+  g[1].next[0] = &g[4];                /* ident -> oper */
+  g[5].next[0] = &g[4];                /* number literal -> oper */
+  g[4].next[0] = &g[2];                /* oper -> whitespace */
+  g[2].next[0] = &g[4];                /* whitespace -> oper */
+  g[4].next[1] = &g[1];                /* oper -> ident */
+  g[4].next[2] = g[4].next[3] = &g[0]; /* oper -> expr */
+  g[4].next[4] = &g[4];                /* oper -> oper */
 
   /* parse input */
   b_state_machine(&l, g);
