@@ -38,6 +38,11 @@ int b_lex_next(struct b_lex *l, char *c) {
     if (c != 0)
       *c = l->message[l->i];
     l->i++;
+    if (*c == '\n') {
+      l->line++;
+      l->col = 0;
+    } else
+      l->col++;
     return 0;
   }
   return -1;
@@ -48,6 +53,10 @@ void b_lex_back(struct b_lex *l) {
 
   if (l->i > l->l)
     l->i--;
+  if (!l->col)
+    l->line--;
+  else
+    l->col--;
 }
 
 void b_lex_emit(struct b_lex *l, struct b_token tok) {
@@ -63,19 +72,21 @@ void b_lex_emit(struct b_lex *l, struct b_token tok) {
 }
 
 /* gets & resets buffer */
-void b_lex_buf(struct b_lex *l, char **buf, size_t *sz) {
+void b_lex_tok(struct b_lex *l, struct b_token *t) {
   assert(l != 0);
-  assert(buf != 0);
-  assert(sz != 0);
 
   if (l->i == l->l)
     return;
 
-  *sz = l->i - l->l;
-  *buf = calloc(sizeof(char), *sz);
-  assert(buf != 0);
-  memcpy(*buf, &l->message[l->l], *sz);
+  t->sz = l->i - l->l;
+  t->buf = calloc(sizeof(char), t->sz);
+  t->line = l->lline;
+  t->col = l->lcol;
+  assert(t->buf != 0);
+  memcpy(t->buf, &l->message[l->l], t->sz);
   l->l = l->i; /* reset buffer */
+  l->lline = l->line;
+  l->lcol = l->col;
 }
 
 size_t b_lex_len(struct b_lex *l) { return l->i - l->l; }
@@ -112,22 +123,25 @@ int b_lex_state_ident(struct b_lex *l) {
     else {
       /* emit ident */
       struct b_token tok;
+      memset(&tok, 0, sizeof(tok));
 
       b_lex_back(l);
 
       if (!b_lex_len(l)) {
+        b_lex_tok(l, &tok);
+        free(tok.buf);
         tok.type = B_TOK_ERR;
         tok.buf = "Expected identifier";
         tok.sz = strlen(tok.buf);
         b_lex_emit(l, tok);
-        return 1;
+        return B_LEX_STATE_IDENT_ERR;
       }
 
+      b_lex_tok(l, &tok);
       tok.type = B_TOK_IDENT;
-      b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
-      return 0;
+      return B_LEX_STATE_IDENT_IDENT;
     }
   }
 }
@@ -139,63 +153,165 @@ int b_lex_state_operator(struct b_lex *l) {
 
   assert(l);
 
+  memset(&tok, 0, sizeof(tok));
+
   for (;;) {
     if (b_lex_next(l, &c) == -1)
       return -1;
     if (b_character_is_whitespace(c))
-      return 0;
+      return B_LEX_STATE_OPERATOR_WHITESPACE;
     else if (c == '.') {
       /* emit dot operator */
 
+      b_lex_tok(l, &tok);
       tok.type = B_TOK_OPER;
-      b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
-      return 1;
+      return B_LEX_STATE_OPERATOR_DOT;
     } else if (c == ',') {
 
+      b_lex_tok(l, &tok);
       tok.type = B_TOK_COMMA;
-      b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
-      return 2;
+      return B_LEX_STATE_OPERATOR_COMMA;
     } else if (c == '(') {
       /* emit opening paren */
 
       l->pdepth++;
 
+      b_lex_tok(l, &tok);
       tok.type = B_TOK_LPAREN;
-      b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
-      return 3;
+      return B_LEX_STATE_OPERATOR_LPAREN;
     } else if (c == ')') {
       /* emit right parenthesis */
 
       if (l->pdepth > 0) {
         l->pdepth--;
 
+        b_lex_tok(l, &tok);
         tok.type = B_TOK_RPAREN;
-        b_lex_buf(l, &tok.buf, &tok.sz);
         b_lex_emit(l, tok);
 
-        return 4;
+        return B_LEX_STATE_OPERATOR_RPAREN;
       } else {
         /* error */
         char *buf = "Too many closing parens.";
 
+        b_lex_tok(l, &tok);
+        free(tok.buf);
         tok.type = B_TOK_ERR;
         tok.buf = buf;
         tok.sz = strlen(buf);
         b_lex_emit(l, tok);
-        return 5;
+        return B_LEX_STATE_OPERATOR_ERR;
       }
-    } else if (b_character_is_letter(c))
-      return b_lex_back(l), 6;
+    } else
+      /* operators don't *have* to be found */
+      return b_lex_back(l), B_LEX_STATE_OPERATOR_NOOPERATOR;
   }
 }
 
-/* type literal */
+int b_lex_state_tuple(struct b_lex *l) {
+  char c;
+  struct b_token tok;
+
+  assert(l);
+
+  memset(&tok, 0, sizeof(tok));
+
+  if (b_lex_next(l, &c) == -1)
+    return -1;
+  if (c == '(') {
+    /* emit opening paren */
+
+    l->pdepth++;
+
+    b_lex_tok(l, &tok);
+    tok.type = B_TOK_LPAREN;
+    b_lex_emit(l, tok);
+
+    return B_LEX_STATE_TUPLE_TUPLE;
+  } else
+    return b_lex_back(l), B_LEX_STATE_TUPLE_NOTUPLE;
+}
+
+int b_lex_state_str(struct b_lex *l) {
+  char c;
+  struct b_token tok;
+
+  assert(l);
+
+  memset(&tok, 0, sizeof(tok));
+
+  if (b_lex_next(l, &c) == -1)
+    return -1;
+  if (c == '"') {
+    /* parse string */
+    for (;;) {
+      if (b_lex_next(l, &c) == -1)
+        return -1;
+      if (c == '"')
+        break;
+      else if (c == '\n') {
+        /* newlines not allowed in strings */
+        b_lex_tok(l, &tok);
+        free(tok.buf);
+        tok.type = B_TOK_ERR;
+        tok.buf = "Newlines not allowd in strings, try using a raw string.";
+        tok.sz = strlen(tok.buf);
+        b_lex_emit(l, tok);
+
+        return B_LEX_STATE_STR_ERR;
+      }
+    }
+  } else if (c == '`') {
+    /* parse raw string */
+    for (;;) {
+      if (b_lex_next(l, &c) == -1)
+        return -1;
+      if (c == '`')
+        break;
+    }
+  } else if (c == '\'') {
+    /* parse single character */
+    if (b_lex_next(l, &c) == -1)
+      return -1;
+    if (b_lex_next(l, &c) == -1)
+      return -1;
+    if (c != '\'') {
+      /* error */
+      char *buf, *fmt;
+      int sz;
+
+      fmt = "Unexpected character '%c', expected closing character quote.";
+      sz = snprintf(0, 0, fmt, c);
+      if (sz < 0)
+        return -1;
+      buf = calloc(sizeof(char), (size_t)sz);
+      snprintf(buf, (size_t)sz, fmt, c);
+
+      b_lex_tok(l, &tok);
+      free(tok.buf);
+      tok.type = B_TOK_ERR;
+      tok.buf = buf;
+      tok.sz = (size_t)sz;
+      b_lex_emit(l, tok);
+
+      return B_LEX_STATE_STR_ERR;
+    }
+  } else
+    return B_LEX_STATE_STR_NOSTR; /* not a string */
+
+  b_lex_tok(l, &tok);
+  tok.type = B_TOK_STR;
+  b_lex_emit(l, tok);
+
+  return B_LEX_STATE_STR_STR;
+}
+
 int b_lex_state_number(struct b_lex *l) {
   char c;
 
@@ -207,24 +323,28 @@ int b_lex_state_number(struct b_lex *l) {
     if (b_character_is_digit(c))
       ;
     else {
-      /* emit ident */
+      /* emit number */
       struct b_token tok;
+
+      memset(&tok, 0, sizeof(tok));
 
       b_lex_back(l);
 
       if (!b_lex_len(l)) {
+        b_lex_tok(l, &tok);
+        free(tok.buf);
         tok.type = B_TOK_ERR;
         tok.buf = "Expected identifier";
         tok.sz = strlen(tok.buf);
         b_lex_emit(l, tok);
-        return 1;
+        return B_LEX_STATE_NUMBER_ERR;
       }
 
+      b_lex_tok(l, &tok);
       tok.type = B_TOK_NUMBER;
-      b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
-      return 0;
+      return B_LEX_STATE_NUMBER_NUMBER;
     }
   }
 }
@@ -242,13 +362,15 @@ int b_lex_state_whitespace(struct b_lex *l) {
     else {
       struct b_token tok;
 
+      memset(&tok, 0, sizeof(tok));
+
       b_lex_back(l);
 
+      b_lex_tok(l, &tok);
       tok.type = B_TOK_WHITESPACE;
-      b_lex_buf(l, &tok.buf, &tok.sz);
       b_lex_emit(l, tok);
 
-      return 0;
+      return B_LEX_STATE_WHITESPACE_WHITESPACE;
     }
   }
 }
@@ -262,18 +384,24 @@ int b_lex_state_expr(struct b_lex *l) {
     if (b_lex_next(l, &c) == -1)
       return -1;
     if (b_character_is_letter(c))
-      return b_lex_back(l), 0;
+      return b_lex_back(l), B_LEX_STATE_EXPR_LETTER;
     else if (b_character_is_digit(c))
-      return b_lex_back(l), 1;
+      return b_lex_back(l), B_LEX_STATE_EXPR_DIGIT;
     else if (b_character_is_whitespace(c))
-      return b_lex_back(l), 2;
+      return b_lex_back(l), B_LEX_STATE_EXPR_WHITESPACE;
+    else if (c == '(')
+      return b_lex_back(l), B_LEX_STATE_EXPR_LPAREN;
     else if (c == ')')
-      return b_lex_back(l), 3;
+      return b_lex_back(l), B_LEX_STATE_EXPR_RPAREN;
+    else if (c == '"' || c == '`' || c == '\'')
+      return b_lex_back(l), B_LEX_STATE_EXPR_QUOTE;
     else {
       /* error */
       char *buf, *fmt;
       struct b_token tok;
       int sz;
+
+      memset(&tok, 0, sizeof(tok));
 
       fmt = "Unexpected character '%c', expected identifier.";
       sz = snprintf(0, 0, fmt, c);
@@ -282,12 +410,14 @@ int b_lex_state_expr(struct b_lex *l) {
       buf = calloc(sizeof(char), (size_t)sz);
       snprintf(buf, (size_t)sz, fmt, c);
 
+      b_lex_tok(l, &tok);
+      free(tok.buf);
       tok.type = B_TOK_ERR;
       tok.buf = buf;
       tok.sz = (size_t)sz;
       b_lex_emit(l, tok);
 
-      return 2;
+      return B_LEX_STATE_EXPR_ERR;
     }
   }
 }

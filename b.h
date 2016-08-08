@@ -16,11 +16,12 @@ struct b_token {
     B_TOK_COMMA,
     B_TOK_IDENT,
     B_TOK_NUMBER,
+    B_TOK_STR,
     B_TOK_OPER,
     B_TOK_max
   } type;
   char *buf;
-  size_t sz;
+  size_t sz, i, line, col;
 };
 
 struct b_token_list {
@@ -31,7 +32,7 @@ struct b_token_list {
 struct b_lex {
   char *message;
   int sock;
-  size_t sz, cap, l, i;
+  size_t sz, cap, l, i, line, col, lline, lcol;
   struct b_token_list *list;
   int pdepth;
 };
@@ -59,14 +60,61 @@ int b_state_machine(struct b_lex *l, struct b_ndfa *ndfa);
 int b_lex_next(struct b_lex *l, char *c);
 void b_lex_back(struct b_lex *l);
 void b_lex_emit(struct b_lex *l, struct b_token tok);
-void b_lex_buf(struct b_lex *l, char **buf, size_t *sz);
+void b_lex_tok(struct b_lex *l, struct b_token *tok);
 size_t b_lex_len(struct b_lex *l);
+
+enum {
+  B_LEX_STATE_EXPR_ERR,
+  B_LEX_STATE_EXPR_LETTER,
+  B_LEX_STATE_EXPR_DIGIT,
+  B_LEX_STATE_EXPR_WHITESPACE,
+  B_LEX_STATE_EXPR_LPAREN,
+  B_LEX_STATE_EXPR_RPAREN,
+  B_LEX_STATE_EXPR_QUOTE,
+  B_LEX_STATE_EXPR_max
+};
+
+enum {
+  B_LEX_STATE_NUMBER_ERR,
+  B_LEX_STATE_NUMBER_NUMBER,
+  B_LEX_STATE_NUMBER_max
+};
+
+enum {
+  B_LEX_STATE_STR_ERR,
+  B_LEX_STATE_STR_NOSTR,
+  B_LEX_STATE_STR_STR,
+  B_LEX_STATE_STR_max
+};
+
+enum {
+  B_LEX_STATE_TUPLE_NOTUPLE,
+  B_LEX_STATE_TUPLE_TUPLE,
+  B_LEX_STATE_TUPLE_max
+};
+
+enum {
+  B_LEX_STATE_OPERATOR_ERR,
+  B_LEX_STATE_OPERATOR_NOOPERATOR,
+  B_LEX_STATE_OPERATOR_WHITESPACE,
+  B_LEX_STATE_OPERATOR_DOT,
+  B_LEX_STATE_OPERATOR_COMMA,
+  B_LEX_STATE_OPERATOR_LPAREN,
+  B_LEX_STATE_OPERATOR_RPAREN,
+  B_LEX_STATE_OPERATOR_max
+};
+
+enum { B_LEX_STATE_WHITESPACE_WHITESPACE, B_LEX_STATE_WHITESPACE_max };
+
+enum { B_LEX_STATE_IDENT_ERR, B_LEX_STATE_IDENT_IDENT, B_LEX_STATE_IDENT_max };
 
 b_lex_statefunc b_lex_state_expr;
 b_lex_statefunc b_lex_state_ident;
+b_lex_statefunc b_lex_state_number;
+b_lex_statefunc b_lex_state_str;
+b_lex_statefunc b_lex_state_tuple;
 b_lex_statefunc b_lex_state_whitespace;
 b_lex_statefunc b_lex_state_function_call;
-b_lex_statefunc b_lex_state_number;
 b_lex_statefunc b_lex_state_operator;
 
 b_lex_checkfunc b_character_is_letter;
