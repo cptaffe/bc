@@ -67,8 +67,11 @@ void b_lex_emit(struct b_lex *l, struct b_token tok) {
   link = calloc(sizeof(struct b_token_list), 1);
   assert(link != 0);
   link->tok = tok;
-  link->next = l->list;
+  if (l->list)
+    l->list->next = link;
   l->list = link;
+  if (!l->head)
+    l->head = link;
 }
 
 /* gets & resets buffer */
@@ -420,4 +423,106 @@ int b_lex_state_expr(struct b_lex *l) {
       return B_LEX_STATE_EXPR_ERR;
     }
   }
+}
+
+/* lexical states */
+enum {
+  B_LEX_STATES_STATE_EXPR,
+  B_LEX_STATES_STATE_IDENT,
+  B_LEX_STATES_STATE_WHITESPACE1,
+  B_LEX_STATES_STATE_WHITESPACE2,
+  B_LEX_STATES_STATE_OPERATOR,
+  B_LEX_STATES_STATE_NUMBER,
+  B_LEX_STATES_STATE_TUPLE,
+  B_LEX_STATES_STATE_STR,
+  B_LEX_STATES_STATE_max
+};
+
+struct b_ndfa b_lex_states[B_LEX_STATES_STATE_max];
+
+__attribute__((constructor)) static void b_lex_states_init(void);
+
+/* Initialize lexer mapping */
+void b_lex_states_init() {
+  size_t i;
+
+  memset(b_lex_states, 0, sizeof(b_lex_states));
+
+  b_lex_states[B_LEX_STATES_STATE_EXPR].func = b_lex_state_expr;
+  b_lex_states[B_LEX_STATES_STATE_EXPR].sz = B_LEX_STATE_EXPR_max;
+
+  b_lex_states[B_LEX_STATES_STATE_IDENT].func = b_lex_state_ident;
+  b_lex_states[B_LEX_STATES_STATE_IDENT].sz = B_LEX_STATE_IDENT_max;
+
+  b_lex_states[B_LEX_STATES_STATE_WHITESPACE1].func = b_lex_state_whitespace;
+  b_lex_states[B_LEX_STATES_STATE_WHITESPACE1].sz = B_LEX_STATE_WHITESPACE_max;
+
+  b_lex_states[B_LEX_STATES_STATE_WHITESPACE2].func = b_lex_state_whitespace;
+  b_lex_states[B_LEX_STATES_STATE_WHITESPACE2].sz = B_LEX_STATE_WHITESPACE_max;
+
+  b_lex_states[B_LEX_STATES_STATE_OPERATOR].func = b_lex_state_operator;
+  b_lex_states[B_LEX_STATES_STATE_OPERATOR].sz = B_LEX_STATE_OPERATOR_max;
+
+  b_lex_states[B_LEX_STATES_STATE_NUMBER].func = b_lex_state_number;
+  b_lex_states[B_LEX_STATES_STATE_NUMBER].sz = B_LEX_STATE_NUMBER_max;
+
+  b_lex_states[B_LEX_STATES_STATE_TUPLE].func = b_lex_state_tuple;
+  b_lex_states[B_LEX_STATES_STATE_TUPLE].sz = B_LEX_STATE_TUPLE_max;
+
+  b_lex_states[B_LEX_STATES_STATE_STR].func = b_lex_state_str;
+  b_lex_states[B_LEX_STATES_STATE_STR].sz = B_LEX_STATE_STR_max;
+
+  /* zero next states */
+  for (i = 0; i < B_LEX_STATES_STATE_max; i++) {
+    b_lex_states[i].next = calloc(sizeof(struct b_ndfa *), b_lex_states[i].sz);
+    assert(b_lex_states[i].next);
+  }
+
+  /* mappinb_lex_statess */
+  b_lex_states[B_LEX_STATES_STATE_EXPR].next[B_LEX_STATE_EXPR_LETTER] =
+      &b_lex_states[B_LEX_STATES_STATE_IDENT];
+  b_lex_states[B_LEX_STATES_STATE_EXPR].next[B_LEX_STATE_EXPR_DIGIT] =
+      &b_lex_states[B_LEX_STATES_STATE_NUMBER];
+  b_lex_states[B_LEX_STATES_STATE_EXPR].next[B_LEX_STATE_EXPR_WHITESPACE] =
+      &b_lex_states[B_LEX_STATES_STATE_WHITESPACE1];
+  b_lex_states[B_LEX_STATES_STATE_EXPR].next[B_LEX_STATE_EXPR_LPAREN] =
+      &b_lex_states[B_LEX_STATES_STATE_TUPLE];
+  b_lex_states[B_LEX_STATES_STATE_EXPR].next[B_LEX_STATE_EXPR_RPAREN] =
+      &b_lex_states[B_LEX_STATES_STATE_OPERATOR];
+  b_lex_states[B_LEX_STATES_STATE_EXPR].next[B_LEX_STATE_EXPR_QUOTE] =
+      &b_lex_states[B_LEX_STATES_STATE_STR];
+  b_lex_states[B_LEX_STATES_STATE_OPERATOR]
+      .next[B_LEX_STATE_OPERATOR_WHITESPACE] =
+      &b_lex_states[B_LEX_STATES_STATE_WHITESPACE2];
+  b_lex_states[B_LEX_STATES_STATE_OPERATOR].next[B_LEX_STATE_OPERATOR_COMMA] =
+      &b_lex_states[B_LEX_STATES_STATE_EXPR];
+  b_lex_states[B_LEX_STATES_STATE_OPERATOR].next[B_LEX_STATE_OPERATOR_DOT] =
+      &b_lex_states[B_LEX_STATES_STATE_EXPR];
+  b_lex_states[B_LEX_STATES_STATE_OPERATOR].next[B_LEX_STATE_OPERATOR_LPAREN] =
+      &b_lex_states[B_LEX_STATES_STATE_EXPR];
+  b_lex_states[B_LEX_STATES_STATE_OPERATOR].next[B_LEX_STATE_OPERATOR_RPAREN] =
+      &b_lex_states[B_LEX_STATES_STATE_OPERATOR];
+  b_lex_states[B_LEX_STATES_STATE_TUPLE].next[B_LEX_STATE_TUPLE_TUPLE] =
+      &b_lex_states[B_LEX_STATES_STATE_EXPR];
+  b_lex_states[B_LEX_STATES_STATE_STR].next[B_LEX_STATE_STR_STR] =
+      &b_lex_states[B_LEX_STATES_STATE_OPERATOR];
+  b_lex_states[B_LEX_STATES_STATE_IDENT].next[B_LEX_STATE_IDENT_IDENT] =
+      &b_lex_states[B_LEX_STATES_STATE_OPERATOR];
+  b_lex_states[B_LEX_STATES_STATE_NUMBER].next[B_LEX_STATE_NUMBER_NUMBER] =
+      &b_lex_states[B_LEX_STATES_STATE_OPERATOR];
+  b_lex_states[B_LEX_STATES_STATE_WHITESPACE1]
+      .next[B_LEX_STATE_WHITESPACE_WHITESPACE] =
+      &b_lex_states[B_LEX_STATES_STATE_EXPR];
+  b_lex_states[B_LEX_STATES_STATE_WHITESPACE2]
+      .next[B_LEX_STATE_WHITESPACE_WHITESPACE] =
+      &b_lex_states[B_LEX_STATES_STATE_OPERATOR];
+}
+
+/* creates new lexer */
+int b_new_lexer(struct b_lex **l) {
+  *l = calloc(sizeof(struct b_lex), 1);
+  if (!*l) {
+    return -1;
+  }
+  return 0;
 }

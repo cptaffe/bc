@@ -33,7 +33,7 @@ struct b_lex {
   char *message;
   int sock;
   size_t sz, cap, l, i, line, col, lline, lcol;
-  struct b_token_list *list;
+  struct b_token_list *head, *list;
   int pdepth;
 };
 
@@ -120,5 +120,9 @@ b_lex_statefunc b_lex_state_operator;
 b_lex_checkfunc b_character_is_letter;
 b_lex_checkfunc b_character_is_digit;
 b_lex_checkfunc b_character_is_whitespace;
+
+extern struct b_ndfa b_lex_states[];
+
+int b_new_lexer(struct b_lex **l);
 
 #endif /* B_B_H_ */
